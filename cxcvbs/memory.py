@@ -7,6 +7,15 @@ import pathlib
 
 import yaml
 
+if os.name == "nt":
+    import win32file
+    import winioctlcon
+    import ctypes
+    import struct
+
+    CX_IOCTL_MMAP = 0xA00
+    CX_IOCTL_MUNMAP = 0xA01
+
 
 class RegisterException(Exception):
     pass
@@ -223,6 +232,68 @@ class Memory(object):
             pass
         raise KeyError
 
+
+class WindowsMemory(Memory):
+    def __enter__(self):
+        self._f = win32file.CreateFile(
+            self._filename,
+            win32file.GENERIC_READ | win32file.GENERIC_WRITE,
+            win32file.FILE_SHARE_READ | win32file.FILE_SHARE_WRITE,
+            None,
+            win32file.OPEN_EXISTING,
+            0,
+            None)
+
+        byte_addr = win32file.DeviceIoControl(
+            self._f,
+            winioctlcon.CTL_CODE(
+                winioctlcon.FILE_DEVICE_UNKNOWN,
+                CX_IOCTL_MMAP,
+                winioctlcon.METHOD_BUFFERED,
+                winioctlcon.FILE_READ_DATA),
+            None,
+            8)
+
+        # CX_IOCTL_MMAP returns a pointer to the shared memory space
+        self._addr = struct.unpack("<Q", byte_addr)[0]
+        self._mv = (ctypes.c_byte * self._size).from_address(self._addr)
+
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        del self._mv
+
+        win32file.DeviceIoControl(
+            self._f,
+            winioctlcon.CTL_CODE(
+                winioctlcon.FILE_DEVICE_UNKNOWN,
+                CX_IOCTL_MUNMAP,
+                winioctlcon.METHOD_BUFFERED,
+                winioctlcon.FILE_WRITE_DATA),
+            None,
+            0)
+
+        win32file.CloseHandle(self._f)
+
+    def read_word(self, address):
+        if address & 0x3:
+            raise AlignmentError
+
+        return (ctypes.c_int).from_buffer(self._mv, address).value
+
+    def write_word(self, address, value, mask):
+        if address & 0x3:
+            raise AlignmentError
+
+        (ctypes.c_int).from_buffer(self._mv, address).value = (self.read_word(address) & (~mask) | (value & mask))
+
+    def read_block(self, address, length):
+        if address & 0x3:
+            raise AlignmentError
+        if length & 0x3:
+            raise AlignmentError
+
+        return (ctypes.c_int * (length // 4)).from_buffer(self._mv, address)[:]
 
 if __name__ == '__main__':
     print(Register.by_name('vblank').description)

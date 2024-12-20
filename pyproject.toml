@@ -14,6 +14,8 @@ dependencies = [
     "pillow",
     "pysdl2",
     "pyyaml",
+    "pywin32 ; platform_system == 'Windows'",
+    "pysdl2-dll ; platform_system == 'Windows'",
 ]
 
 [project.urls]

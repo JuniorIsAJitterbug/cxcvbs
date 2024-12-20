@@ -1,8 +1,12 @@
 import ctypes
+import os
 import numpy as np
 from PIL import Image
 
 from sdl2 import *
+
+if os.name == "nt":
+    import win32file
 
 screenw, screenh = 1680, 1050
 overscan = 0
@@ -102,12 +106,19 @@ class Video:
                 elif event.type == SDL_KEYUP:
                     print(event.key)
 
-            data = np.frombuffer(self._cxadc.read(self._samples_per_frame), dtype=np.uint8)
+            if os.name == "nt":
+                read_hr, read_buf = win32file.ReadFile(self._cxadc, self._samples_per_frame)
+                data = np.frombuffer(read_buf, dtype=np.uint8)
+            else:
+                data = np.frombuffer(self._cxadc.read(self._samples_per_frame), dtype=np.uint8)
 
             c += self._frac
             while c > 1:
                 c -= 1
-                self._cxadc.read(1)
+                if os.name == "nt":
+                    win32file.ReadFile(self._cxadc, 1)
+                else:
+                    self._cxadc.read(1)
             img = self._palette[data]
             SDL_SetRenderDrawColor(self._renderer, 0, 0, 0, 255)
             SDL_RenderClear(self._renderer)
